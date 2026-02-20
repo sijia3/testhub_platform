@@ -503,6 +503,7 @@ export default {
     title: '任务详情',
     taskId: '任务ID',
     exportBtn: '💾 导出Excel',
+    exportXmindBtn: '📝 导出MD(XMind)',
     exporting: '💾 导出中...',
 
     // 需求描述折叠卡片

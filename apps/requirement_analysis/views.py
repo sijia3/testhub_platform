@@ -764,6 +764,128 @@ def analyze_text(request):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+def export_test_cases_xmind(request, task_id):
+    """导出测试用例为支持XMind导入的Markdown格式"""
+    try:
+        from django.http import HttpResponse
+        import re
+
+        task = TestCaseGenerationTask.objects.filter(task_id=task_id).first()
+        if not task:
+            return Response({'error': '任务未找到'}, status=status.HTTP_404_NOT_FOUND)
+
+        test_cases_content = task.final_test_cases or task.generated_test_cases
+        if not test_cases_content:
+            return Response({'error': '没有可导出的测试用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        def parse_test_cases_to_dict(content):
+            """将测试用例内容解析为字典列表"""
+            if not content:
+                return []
+            clean_content = re.sub(r'\*\*([^*]+)\*\*', r'\1', content)
+            test_cases = []
+            if '|' in clean_content:
+                lines = [line.strip() for line in clean_content.split('\n') if line.strip()]
+                header_found = False
+                for line in lines:
+                    if '|' in line and not line.startswith('|-'):
+                        if not header_found:
+                            header_found = True
+                            continue
+                        temp_placeholder = "___PIPE___"
+                        processed_line = line.replace(r'\|', temp_placeholder)
+                        if processed_line.startswith('|'):
+                            processed_line = processed_line[1:]
+                        if processed_line.endswith('|'):
+                            processed_line = processed_line[:-1]
+                        cells = [c.strip().replace(temp_placeholder, '|') for c in processed_line.split('|')]
+                        if len(cells) >= 5:
+                            test_cases.append({
+                                'case_id': cells[0],
+                                'scenario': cells[1],
+                                'precondition': cells[2],
+                                'steps': cells[3],
+                                'expected': cells[4],
+                                'priority': cells[5] if len(cells) > 5 else 'P2'
+                            })
+            else:
+                current_case = {}
+                lines = content.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        if current_case:
+                            test_cases.append(current_case)
+                            current_case = {}
+                        continue
+                    if line.startswith('#'):
+                        continue
+                    if line.startswith('用例编号') or line.startswith('测试用例ID') or line.startswith('Case ID'):
+                        match = re.search(r'[:：]\s*(.+)', line)
+                        if match:
+                            current_case['case_id'] = match.group(1).strip()
+                    elif line.startswith('测试场景') or line.startswith('场景') or line.startswith('Scenario'):
+                        match = re.search(r'[:：]\s*(.+)', line)
+                        if match:
+                            current_case['scenario'] = match.group(1).strip()
+                    elif line.startswith('前置条件') or line.startswith('Precondition'):
+                        match = re.search(r'[:：]\s*(.+?)(?=预期|$)', line)
+                        if match:
+                            current_case['precondition'] = match.group(1).strip()
+                    elif line.startswith('操作步骤') or line.startswith('步骤') or line.startswith('Steps'):
+                        match = re.search(r'[:：]\s*(.+?)(?=预期|$)', line)
+                        if match:
+                            current_case['steps'] = match.group(1).strip()
+                    elif line.startswith('预期结果') or line.startswith('Expected'):
+                        match = re.search(r'[:：]\s*(.+?)(?=\n|$)', line)
+                        if match:
+                            current_case['expected'] = match.group(1).strip()
+                    elif line.startswith('优先级') or line.startswith('Priority'):
+                        match = re.search(r'[:：]\s*(.+?)(?=\n|$)', line)
+                        if match:
+                            current_case['priority'] = match.group(1).strip()
+                if current_case:
+                    test_cases.append(current_case)
+
+            for tc in test_cases:
+                if 'case_id' not in tc or not tc['case_id']:
+                    tc['case_id'] = f"TC{test_cases.index(tc) + 1:03d}"
+                tc.setdefault('scenario', '')
+                tc.setdefault('precondition', '')
+                tc.setdefault('steps', '')
+                tc.setdefault('expected', '')
+                tc.setdefault('priority', 'P2')
+
+            return test_cases
+
+        test_cases = parse_test_cases_to_dict(test_cases_content)
+        if not test_cases:
+            return Response({'error': '无法解析测试用例内容'}, status=status.HTTP_400_BAD_REQUEST)
+
+        title = task.title or task.task_id or '测试用例'
+        md_content = f"# {title} ({len(test_cases)}个)\n\n"
+
+        for idx, tc in enumerate(test_cases, 1):
+            scenario = tc.get('scenario', '').strip() or tc.get('case_id', f'TC{idx}')
+            md_content += f"## {scenario}\n\n"
+            md_content += f"- **用例ID**: {tc.get('case_id', 'N/A')}\n"
+            md_content += f"- **前置条件**: {tc.get('precondition', 'N/A')}\n"
+            md_content += f"- **操作步骤**: {tc.get('steps', 'N/A')}\n"
+            md_content += f"- **预期结果**: {tc.get('expected', 'N/A')}\n"
+            md_content += f"- **优先级**: {tc.get('priority', 'P2')}\n\n"
+
+        response = HttpResponse(md_content, content_type='text/markdown; charset=utf-8')
+        filename = f"测试用例_{task.task_id}_{timezone.now().strftime('%Y%m%d')}.md"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
+    except Exception as e:
+        logger.error(f"导出Markdown失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])

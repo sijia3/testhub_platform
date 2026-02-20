@@ -503,6 +503,7 @@ export default {
     title: 'Task Detail',
     taskId: 'Task ID',
     exportBtn: '💾 Export Excel',
+    exportXmindBtn: '📝 Export MD(XMind)',
     exporting: '💾 Exporting...',
 
     // Requirement Collapse Card

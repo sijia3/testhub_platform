@@ -17,6 +17,13 @@
           <span v-if="isExporting">{{ $t('taskDetail.exporting') }}</span>
           <span v-else>{{ $t('taskDetail.exportBtn') }}</span>
         </button>
+        <button
+          v-if="testCases.length > 0"
+          class="export-btn export-xmind-btn"
+          @click="exportToXmind"
+          :disabled="isExporting">
+          <span>{{ $t('taskDetail.exportXmindBtn') || '导出XMind' }}</span>
+        </button>
       </div>
     </div>
 
@@ -347,9 +354,12 @@ export default {
         const taskResponse = await api.get(`/requirement-analysis/testcase-generation/${this.taskId}/`)
         this.task = taskResponse.data
 
-        // 解析最终测试用例
-        if (this.task.final_test_cases) {
-          this.testCases = this.parseTestCases(this.task.final_test_cases)
+        // 兼容历史任务：优先使用 final_test_cases，回退到 generated_test_cases
+        const testCaseContent = this.task.final_test_cases || this.task.generated_test_cases || ''
+        if (testCaseContent) {
+          this.testCases = this.parseTestCases(testCaseContent)
+        } else {
+          this.testCases = []
         }
       } catch (error) {
         console.error('Failed to load task details:', error)
@@ -365,6 +375,10 @@ export default {
 
       // 去除markdown加粗标记，保留纯净文本
       let cleanContent = content.replace(/\*\*([^*]+)\*\*/g, '$1')
+      // 去除代码块标记，避免被当做普通行参与解析
+      cleanContent = cleanContent
+        .replace(/```markdown/gi, '')
+        .replace(/```/g, '')
 
       const lines = cleanContent.split('\n').filter(line => line.trim())
       const testCases = []
@@ -375,8 +389,15 @@ export default {
 
       for (let line of lines) {
         const trimmedLine = line.trim()
-        if (trimmedLine.includes('|') && !trimmedLine.includes('--------')) {
-          const cells = trimmedLine.split('|').map(cell => cell.trim()).filter(cell => cell)
+        const isSeparator = /^\|?[\s:\-]+\|[\s:\-\|]*$/.test(trimmedLine)
+        if (trimmedLine.includes('|') && !isSeparator) {
+          // 兼容历史数据中的转义管道符 \|
+          const placeholder = '___PIPE___'
+          const normalized = trimmedLine.replace(/\\\|/g, placeholder)
+          const cells = normalized
+            .split('|')
+            .map(cell => cell.replace(new RegExp(placeholder, 'g'), '|').replace(/&#124;/g, '|').trim())
+            .filter(cell => cell)
           if (cells.length > 1) {
             tableData.push(cells)
             isTableFormat = true
@@ -960,6 +981,49 @@ export default {
         ElMessage.success(this.$t('taskDetail.exportSuccess'))
       } catch (error) {
         console.error('Export Excel failed:', error)
+        ElMessage.error(this.$t('taskDetail.exportFailed') + ': ' + (error.message || ''))
+      } finally {
+        this.isExporting = false
+      }
+    },
+
+    async exportToXmind() {
+      if (this.testCases.length === 0) {
+        ElMessage.warning(this.$t('taskDetail.noCasesToExport'))
+        return
+      }
+
+      this.isExporting = true
+
+      try {
+        const apiBase = import.meta.env.VITE_API_BASE_URL || ''
+        const url = `${apiBase}/api/requirement-analysis/export-xmind/${this.taskId}/`
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Accept': 'text/markdown'
+          }
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || '导出失败')
+        }
+
+        const blob = await response.blob()
+        const downloadUrl = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = downloadUrl
+        link.download = `测试用例_${this.taskId}_${new Date().toISOString().slice(0, 10)}.md`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(downloadUrl)
+
+        ElMessage.success(this.$t('taskDetail.exportSuccess') || '导出成功')
+      } catch (error) {
+        console.error('Export XMind failed:', error)
         ElMessage.error(this.$t('taskDetail.exportFailed') + ': ' + (error.message || ''))
       } finally {
         this.isExporting = false
