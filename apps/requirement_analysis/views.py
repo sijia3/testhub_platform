@@ -919,17 +919,10 @@ def analyze_text(request):
 
                 logger.info(f"开始使用先进分析器分析需求: {title}")
 
-                # 调用先进的需求分析
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-                try:
-                    analysis_result = loop.run_until_complete(
-                        AIService.analyze_requirements(description, title)
-                    )
-                    logger.info(f"先进分析完成，识别需求: {analysis_result.get('requirements_count', 0)}个")
-                finally:
-                    loop.close()
+                analysis_result = asyncio.run(
+                    AIService.analyze_requirements(description, title)
+                )
+                logger.info(f"先进分析完成，识别需求: {analysis_result.get('requirements_count', 0)}个")
 
                 # 创建分析记录
                 analysis = RequirementAnalysis.objects.create(

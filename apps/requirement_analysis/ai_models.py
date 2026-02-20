@@ -152,7 +152,8 @@ class AIModelService:
             'max_tokens': config.max_tokens,
             'temperature': config.temperature,
             'top_p': config.top_p,
-            'stream': False
+            'stream': False,
+            'enable_thinking': False
         }
         
         # 确保base_url不以/结尾
