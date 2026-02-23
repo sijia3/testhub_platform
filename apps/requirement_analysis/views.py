@@ -1547,8 +1547,9 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                                             task.stream_position = len(task.stream_buffer)
                                             task.last_stream_update = timezone.now()
 
-                                            # 每10个chunk或当chunk较大时保存一次
-                                            if task.stream_position % 500 < 20 or len(chunk) > 100:
+                                            # 优化：降低保存频率阈值，提高实时性
+                                            # 每50字符或当chunk较大时保存一次（原500->50, 100->20）
+                                            if task.stream_position % 50 < 10 or len(chunk) > 20:
                                                 try:
                                                     await async_save_stream_buffer(task.stream_buffer)
                                                 except Exception as save_error:
@@ -1594,8 +1595,8 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                                                     review_buffer.append(chunk)
                                                     current_length = sum(len(c) for c in review_buffer)
 
-                                                    # 每100字符保存一次
-                                                    if current_length % 100 < 20 or len(chunk) > 50:
+                                                    # 优化：降低保存频率阈值（原100->30, 50->10）
+                                                    if current_length % 30 < 10 or len(chunk) > 10:
                                                         try:
                                                             content = ''.join(review_buffer)
                                                             await async_save_review(content)
@@ -1639,9 +1640,9 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                                                             task.final_test_cases = (
                                                                                             task.final_test_cases or '') + chunk
 
-                                                            # 每100字符或chunk较大时保存一次
+                                                            # 优化：降低保存频率阈值（原100->30, 50->10）
                                                             current_length = len(task.final_test_cases)
-                                                            if current_length % 100 < 20 or len(chunk) > 50:
+                                                            if current_length % 30 < 10 or len(chunk) > 10:
                                                                 try:
                                                                     await async_save_final(task.final_test_cases)
                                                                 except Exception as save_error:
@@ -1774,9 +1775,9 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                                                             task.final_test_cases = (
                                                                                             task.final_test_cases or '') + chunk
 
-                                                            # 每100字符或chunk较大时保存一次
+                                                            # 优化：降低保存频率阈值（原100->30, 50->10）
                                                             current_length = len(task.final_test_cases)
-                                                            if current_length % 100 < 20 or len(chunk) > 50:
+                                                            if current_length % 30 < 10 or len(chunk) > 10:
                                                                 try:
                                                                     await async_save_final_full(task.final_test_cases)
                                                                 except Exception as save_error:
@@ -2169,8 +2170,8 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                         yield ": keep-alive\n\n"
                         last_heartbeat_time = current_time
 
-                    # 减少休眠时间到 0.5s，提高响应速度
-                    time.sleep(0.5)
+                    # 优化：减少休眠时间到 0.1s，提高响应速度（原0.5s->0.1s）
+                    time.sleep(0.1)
 
             # 返回SSE流式响应 - 使用更稳健的方式
             try:
